@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#2C7A72">
+<title>持ち物チェック | SWMD</title>
+<!-- TensorFlow.js + COCO-SSD(物体検出モデル)。初回のみダウンロード、以降はブラウザがキャッシュ -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<style>
+:root{
+  --paper:#FAF8F4;      /* 生成りの綿布 */
+  --ink:#22403C;        /* 濃い青緑の墨 */
+  --teal:#2C7A72;       /* SWMDティール */
+  --teal-deep:#205B55;
+  --tag:#C98F3D;        /* 荷札の麻紐色 */
+  --line:#DDD6CA;
+  --card:#FFFFFF;
+  --danger:#B0503C;
+  --ok:#2C7A72;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{font-size:16px}
+body{
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic Medium",YuGothic,Meiryo,sans-serif;
+  background:var(--paper);color:var(--ink);line-height:1.6;
+  min-height:100vh;padding-bottom:90px;
+}
+/* ---------- ヘッダー ---------- */
+header{
+  position:sticky;top:0;z-index:20;
+  background:var(--paper);border-bottom:1px solid var(--line);
+  padding:14px 18px 10px;
+}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand h1{font-size:1.15rem;font-weight:700;letter-spacing:.06em}
+.brand .sub{font-size:.68rem;color:var(--teal);letter-spacing:.14em;font-weight:600}
+.brand-note{font-size:.68rem;color:#8b8578;margin-top:2px}
+/* ---------- 画面切替 ---------- */
+.screen{display:none;padding:18px 18px 30px;max-width:640px;margin:0 auto}
+.screen.active{display:block}
+/* ---------- ボタン ---------- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  border:none;border-radius:10px;cursor:pointer;
+  font-family:inherit;font-size:1rem;font-weight:700;
+  padding:14px 20px;width:100%;transition:opacity .15s;
+}
+.btn:active{opacity:.75}
+.btn-primary{background:var(--teal);color:#fff}
+.btn-secondary{background:#fff;color:var(--teal-deep);border:1.5px solid var(--teal)}
+.btn-ghost{background:transparent;color:#8b8578;font-weight:500;font-size:.85rem;padding:8px;width:auto}
+.btn-danger-ghost{background:transparent;color:var(--danger);font-weight:500;font-size:.85rem;padding:8px;width:auto}
+.btn-sm{width:auto;padding:9px 16px;font-size:.85rem;border-radius:8px}
+.btn:disabled{opacity:.45;cursor:default}
+/* ---------- ホーム:リスト一覧 ---------- */
+.empty-state{
+  text-align:center;padding:60px 20px 40px;color:#8b8578;font-size:.9rem;
+}
+.empty-state .big{font-size:2.4rem;margin-bottom:12px}
+.list-card{
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:16px;margin-bottom:12px;cursor:pointer;
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+}
+.list-card:active{background:#f4f1ea}
+.list-card .name{font-weight:700;font-size:1.05rem}
+.list-card .meta{font-size:.75rem;color:#8b8578;margin-top:2px}
+.list-card .count{
+  flex-shrink:0;background:var(--paper);border:1px solid var(--line);
+  border-radius:20px;padding:4px 12px;font-size:.8rem;font-weight:700;color:var(--teal-deep);
+}
+/* ---------- 荷札カード(このアプリの顔) ---------- */
+.tag-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:16px 0}
+.tag-card{
+  position:relative;background:var(--card);border:1px solid var(--line);
+  border-radius:4px 14px 4px 4px;overflow:visible;
+  box-shadow:0 1px 2px rgba(34,64,60,.06);
+}
+/* 荷札の紐穴 */
+.tag-card::before{
+  content:"";position:absolute;top:7px;left:7px;width:11px;height:11px;
+  border:2.5px solid var(--tag);border-radius:50%;background:var(--paper);z-index:2;
+}
+.tag-card .photo{
+  width:100%;aspect-ratio:1;object-fit:cover;display:block;
+  border-radius:3px 13px 0 0;background:#eee9df;
+}
+.tag-card .no-photo{
+  width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  color:#c5bfb2;font-size:1.8rem;background:#f2eee6;border-radius:3px 13px 0 0;
+}
+.tag-card .body{padding:8px 10px 10px;border-top:2px dashed var(--line)}
+.tag-card input.item-name{
+  width:100%;border:none;border-bottom:1.5px solid var(--line);
+  font-family:inherit;font-size:.95rem;font-weight:700;color:var(--ink);
+  background:transparent;padding:2px 0 4px;
+}
+.tag-card input.item-name:focus{outline:none;border-bottom-color:var(--teal)}
+.tag-card .conf{font-size:.65rem;color:#a39c8d;margin-top:4px}
+.tag-card .remove{
+  position:absolute;top:-8px;right:-8px;width:28px;height:28px;border-radius:50%;
+  background:var(--ink);color:#fff;border:none;font-size:1rem;line-height:1;
+  cursor:pointer;z-index:3;
+}
+/* ---------- 照合モード ---------- */
+.check-row{
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:10px 12px;margin-bottom:10px;
+  display:flex;align-items:center;gap:12px;cursor:pointer;
+}
+.check-row.checked{background:#EAF3F1;border-color:var(--teal)}
+.check-row img{width:56px;height:56px;object-fit:cover;border-radius:8px;flex-shrink:0;background:#eee9df}
+.check-row .noimg{width:56px;height:56px;border-radius:8px;background:#f2eee6;display:flex;align-items:center;justify-content:center;color:#c5bfb2;flex-shrink:0}
+.check-row .cname{font-weight:700;flex:1;font-size:1rem}
+.check-row .cbox{
+  width:30px;height:30px;border:2px solid var(--line);border-radius:8px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff;
+}
+.check-row.checked .cbox{background:var(--teal);border-color:var(--teal)}
+.progress-bar{
+  position:sticky;top:64px;z-index:15;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:12px 16px;margin-bottom:16px;
+}
+.progress-bar .label{display:flex;justify-content:space-between;font-size:.85rem;font-weight:700;margin-bottom:8px}
+.progress-track{height:8px;background:var(--paper);border-radius:4px;overflow:hidden}
+.progress-fill{height:100%;background:var(--teal);border-radius:4px;transition:width .3s;width:0%}
+.all-done{
+  background:#EAF3F1;border:1.5px solid var(--teal);border-radius:12px;
+  padding:14px;text-align:center;font-weight:700;color:var(--teal-deep);
+  margin-bottom:16px;display:none;
+}
+/* ---------- フォーム ---------- */
+.field{margin-bottom:16px}
+.field label{display:block;font-size:.8rem;font-weight:700;color:var(--teal-deep);margin-bottom:6px;letter-spacing:.05em}
+.field input[type=text]{
+  width:100%;border:1.5px solid var(--line);border-radius:10px;
+  font-family:inherit;font-size:1.05rem;padding:12px 14px;background:#fff;color:var(--ink);
+}
+.field input[type=text]:focus{outline:none;border-color:var(--teal)}
+/* ---------- 品名チップ ---------- */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{
+  border:1px solid var(--line);background:#fff;border-radius:20px;
+  padding:6px 13px;font-size:.8rem;font-family:inherit;color:var(--ink);cursor:pointer;
+}
+.chip:active{background:var(--teal);color:#fff;border-color:var(--teal)}
+/* ---------- 状態表示 ---------- */
+.status-box{
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:24px 16px;text-align:center;margin:16px 0;
+}
+.spinner{
+  width:36px;height:36px;border:4px solid var(--line);border-top-color:var(--teal);
+  border-radius:50%;margin:0 auto 12px;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:2s}}
+.status-box .msg{font-size:.9rem;font-weight:700}
+.status-box .sub-msg{font-size:.75rem;color:#8b8578;margin-top:6px}
+/* ---------- 注意書き ---------- */
+.notice{
+  border-left:3px solid var(--tag);background:#FBF5EA;
+  padding:10px 14px;font-size:.78rem;color:#6d6350;border-radius:0 8px 8px 0;
+  margin:14px 0;
+}
+/* ---------- 下部バー ---------- */
+.bottom-bar{
+  position:fixed;bottom:0;left:0;right:0;z-index:20;
+  background:var(--card);border-top:1px solid var(--line);
+  padding:12px 18px calc(12px + env(safe-area-inset-bottom));
+  display:flex;gap:10px;max-width:640px;margin:0 auto;
+}
+.section-title{font-size:.8rem;font-weight:700;color:var(--teal-deep);letter-spacing:.08em;margin:20px 0 10px}
+.back-link{font-size:.85rem;color:var(--teal-deep);font-weight:700;cursor:pointer;display:inline-block;margin-bottom:14px;background:none;border:none;font-family:inherit;padding:4px 0}
+.footer-note{text-align:center;font-size:.68rem;color:#a39c8d;margin-top:40px;line-height:1.8}
+.hidden{display:none!important}
+button:focus-visible,input:focus-visible,.check-row:focus-visible,.list-card:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>持ち物チェック</h1>
+    <span class="sub">SWMD TOOLS</span>
+  </div>
+  <div class="brand-note">写真もリストも端末の中だけに保存されます(外部送信なし)</div>
+</header>
+
+<!-- ============ 画面1:ホーム ============ -->
+<section class="screen active" id="scr-home">
+  <div id="home-lists"></div>
+  <div class="empty-state hidden" id="home-empty">
+    <div class="big">🧳</div>
+    <p>まだ持ち物リストがありません。<br>「新しいリストを作る」から始めてください。</p>
+  </div>
+  <div style="margin-top:20px">
+    <button class="btn btn-primary" onclick="app.gotoCreate()">＋ 新しいリストを作る</button>
+  </div>
+  <div class="footer-note">
+    AIの検出結果は下書きです。品名・点数は必ず職員が確認してください。<br>
+    株式会社福祉マネジメント＆デザイン
+  </div>
+</section>
+
+<!-- ============ 画面2:新規作成 ============ -->
+<section class="screen" id="scr-create">
+  <button class="back-link" onclick="app.gotoHome()">← 一覧に戻る</button>
+
+  <div class="field">
+    <label for="inp-user">利用者名(またはリスト名)</label>
+    <input type="text" id="inp-user" placeholder="例:山田花子さま(入所時)" autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label>持ち物の写真</label>
+    <button class="btn btn-secondary" onclick="document.getElementById('inp-photo').click()">📷 写真を撮る / 選ぶ</button>
+    <input type="file" id="inp-photo" accept="image/*" capture="environment" class="hidden">
+    <div class="notice">物どうしが重ならないように並べて、明るい場所で撮ると検出しやすくなります。</div>
+  </div>
+
+  <div class="status-box hidden" id="detect-status">
+    <div class="spinner"></div>
+    <div class="msg" id="detect-msg">AIモデルを読み込み中…</div>
+    <div class="sub-msg" id="detect-sub">初回のみ十数MBの読み込みがあります(Wi-Fi推奨)</div>
+  </div>
+
+  <div id="detect-result" class="hidden">
+    <div class="section-title" id="detect-count">検出された持ち物</div>
+    <div class="notice">品名はAIの推定です。タップして正しい名前に直してください。誤検出は「×」で削除できます。</div>
+    <div class="tag-grid" id="tag-grid"></div>
+    <button class="btn btn-ghost" onclick="app.addManualItem()">＋ 検出されなかった物を手動で追加</button>
+    <div class="section-title">よく使う品名(タップで最後の項目に入力)</div>
+    <div class="chips" id="chips"></div>
+    <div style="margin-top:24px">
+      <button class="btn btn-primary" id="btn-save" onclick="app.saveList()">このリストを保存する</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 画面3:リスト詳細(照合) ============ -->
+<section class="screen" id="scr-detail">
+  <button class="back-link" onclick="app.gotoHome()">← 一覧に戻る</button>
+  <h2 id="detail-title" style="font-size:1.2rem;margin-bottom:4px"></h2>
+  <div id="detail-date" style="font-size:.75rem;color:#8b8578;margin-bottom:16px"></div>
+
+  <div class="progress-bar">
+    <div class="label"><span>照合の進み具合</span><span id="prog-text">0 / 0</span></div>
+    <div class="progress-track"><div class="progress-fill" id="prog-fill"></div></div>
+  </div>
+  <div class="all-done" id="all-done">✓ すべての持ち物を確認しました</div>
+
+  <div id="detail-items"></div>
+
+  <div class="section-title">このリストの操作</div>
+  <button class="btn btn-secondary" onclick="app.exportCsv()">CSVで書き出す(バックアップ)</button>
+  <div style="display:flex;gap:8px;margin-top:10px;justify-content:space-between">
+    <button class="btn-ghost btn" style="width:auto" onclick="app.resetChecks()">チェックを全部外す</button>
+    <button class="btn-danger-ghost btn" style="width:auto" onclick="app.deleteList()">リストを削除</button>
+  </div>
+  <div class="notice" style="margin-top:16px">iPhoneのSafariは長期間使わないとブラウザ内のデータを消すことがあります。大切な台帳は定期的にCSVで書き出して保管してください。</div>
+</section>
+
+<script>
+"use strict";
+
+/* ================= COCO-SSDクラス名 → 日本語(介護現場寄せ) ================= */
+const JP_NAMES = {
+  "cup":"コップ","bottle":"ボトル・水筒","toothbrush":"歯ブラシ","bowl":"お椀・容器",
+  "book":"本・ノート","cell phone":"携帯電話","remote":"リモコン","scissors":"はさみ",
+  "handbag":"手さげバッグ","backpack":"リュック","suitcase":"バッグ・カバン","umbrella":"傘",
+  "clock":"時計","vase":"容器","spoon":"スプーン","fork":"フォーク","knife":"ナイフ",
+  "banana":"バナナ","apple":"りんご","orange":"みかん","chair":"椅子","teddy bear":"ぬいぐるみ",
+  "hair drier":"ドライヤー","laptop":"パソコン","mouse":"マウス","keyboard":"キーボード",
+  "tie":"ネクタイ","wine glass":"グラス","potted plant":"鉢植え","tv":"画面・モニター"
+};
+const CHIP_NAMES = ["タオル","バスタオル","衣類(上)","衣類(下)","下着","靴下","パジャマ","歯ブラシ","入れ歯ケース","コップ","ティッシュ","お薬手帳","メガネ","補聴器","杖","靴","ひげそり","くし","ハンカチ","おむつ"];
+
+/* ================= IndexedDB ================= */
+const DB = {
+  db:null,
+  open(){return new Promise((res,rej)=>{
+    const r = indexedDB.open("mochimono-db",1);
+    r.onupgradeneeded = e=>{ e.target.result.createObjectStore("lists",{keyPath:"id"}); };
+    r.onsuccess = e=>{ DB.db=e.target.result; res(); };
+    r.onerror = ()=>rej(r.error);
+  })},
+  tx(mode){ return DB.db.transaction("lists",mode).objectStore("lists"); },
+  getAll(){return new Promise((res,rej)=>{ const q=DB.tx("readonly").getAll(); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); })},
+  get(id){return new Promise((res,rej)=>{ const q=DB.tx("readonly").get(id); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); })},
+  put(v){return new Promise((res,rej)=>{ const q=DB.tx("readwrite").put(v); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); })},
+  del(id){return new Promise((res,rej)=>{ const q=DB.tx("readwrite").delete(id); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); })}
+};
+
+/* ================= アプリ本体 ================= */
+const app = {
+  model:null,
+  draftItems:[],   // 作成中の項目 [{name, imageDataUrl, conf}]
+  currentListId:null,
+  currentList:null,
+
+  async init(){
+    await DB.open();
+    document.getElementById("inp-photo").addEventListener("change", e=>{
+      if(e.target.files && e.target.files[0]) app.detectFromFile(e.target.files[0]);
+      e.target.value = "";
+    });
+    const chipsEl = document.getElementById("chips");
+    CHIP_NAMES.forEach(n=>{
+      const b=document.createElement("button");
+      b.type="button"; b.className="chip"; b.textContent=n;
+      b.onclick=()=>app.fillLastEmptyName(n);
+      chipsEl.appendChild(b);
+    });
+    app.renderHome();
+  },
+
+  /* ---------- 画面遷移 ---------- */
+  show(id){ document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active")); document.getElementById(id).classList.add("active"); window.scrollTo(0,0); },
+  gotoHome(){ app.renderHome(); app.show("scr-home"); },
+  gotoCreate(){
+    app.draftItems=[];
+    document.getElementById("inp-user").value="";
+    document.getElementById("detect-result").classList.add("hidden");
+    document.getElementById("detect-status").classList.add("hidden");
+    app.show("scr-create");
+  },
+
+  /* ---------- ホーム ---------- */
+  async renderHome(){
+    const lists = (await DB.getAll()).sort((a,b)=>b.createdAt-a.createdAt);
+    const wrap = document.getElementById("home-lists");
+    wrap.innerHTML="";
+    document.getElementById("home-empty").classList.toggle("hidden", lists.length>0);
+    lists.forEach(l=>{
+      const checked = l.items.filter(i=>i.checked).length;
+      const d=document.createElement("div");
+      d.className="list-card"; d.tabIndex=0;
+      d.innerHTML=`<div><div class="name"></div><div class="meta"></div></div><div class="count">${checked}/${l.items.length} 確認</div>`;
+      d.querySelector(".name").textContent=l.userName;
+      d.querySelector(".meta").textContent="登録: "+new Date(l.createdAt).toLocaleString("ja-JP",{dateStyle:"medium",timeStyle:"short"});
+      d.onclick=()=>app.openDetail(l.id);
+      d.onkeydown=e=>{if(e.key==="Enter")app.openDetail(l.id)};
+      wrap.appendChild(d);
+    });
+  },
+
+  /* ---------- 検出 ---------- */
+  async detectFromFile(file){
+    const statusBox=document.getElementById("detect-status");
+    const msg=document.getElementById("detect-msg");
+    const sub=document.getElementById("detect-sub");
+    statusBox.classList.remove("hidden");
+    document.getElementById("detect-result").classList.add("hidden");
+    try{
+      if(!app.model){
+        msg.textContent="AIモデルを読み込み中…";
+        sub.textContent="初回のみ十数MBの読み込みがあります(Wi-Fi推奨)";
+        app.model = await cocoSsd.load({base:"lite_mobilenet_v2"});
+      }
+      msg.textContent="写真の中の持ち物を探しています…";
+      sub.textContent="";
+      const img = await app.fileToImage(file);
+      const canvas = app.drawScaled(img, 1280);
+      const preds = await app.model.detect(canvas, 25, 0.45);
+
+      // 既存の下書きに追加(複数枚撮影に対応)
+      preds.forEach(p=>{
+        const crop = app.cropFromCanvas(canvas, p.bbox);
+        const en = p.class;
+        app.draftItems.push({
+          name: JP_NAMES[en] || en,
+          imageDataUrl: crop,
+          conf: Math.round(p.score*100)
+        });
+      });
+      statusBox.classList.add("hidden");
+      if(app.draftItems.length===0){
+        alert("持ち物を検出できませんでした。\n・物を離して並べる\n・明るい場所で撮る\nと検出しやすくなります。手動追加も使えます。");
+        app.draftItems=[];
+        document.getElementById("detect-result").classList.remove("hidden");
+      }
+      app.renderDraft();
+    }catch(err){
+      statusBox.classList.add("hidden");
+      alert("AIモデルの読み込みに失敗しました。\n通信環境(初回はネット接続が必要です)を確認して、もう一度お試しください。\n\n詳細: "+err.message);
+    }
+  },
+
+  fileToImage(file){return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{URL.revokeObjectURL(url);res(img)};
+    img.onerror=rej;
+    img.src=url;
+  })},
+
+  drawScaled(img,maxSide){
+    const scale=Math.min(1, maxSide/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement("canvas");
+    c.width=Math.round(img.naturalWidth*scale);
+    c.height=Math.round(img.naturalHeight*scale);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+    return c;
+  },
+
+  cropFromCanvas(canvas,[x,y,w,h]){
+    const pad=Math.round(Math.max(w,h)*0.06);
+    const sx=Math.max(0,x-pad), sy=Math.max(0,y-pad);
+    const sw=Math.min(canvas.width-sx, w+pad*2), sh=Math.min(canvas.height-sy, h+pad*2);
+    const out=document.createElement("canvas");
+    const maxOut=400, s=Math.min(1, maxOut/Math.max(sw,sh));
+    out.width=Math.round(sw*s); out.height=Math.round(sh*s);
+    out.getContext("2d").drawImage(canvas,sx,sy,sw,sh,0,0,out.width,out.height);
+    return out.toDataURL("image/jpeg",0.82);
+  },
+
+  /* ---------- 下書き編集 ---------- */
+  renderDraft(){
+    const grid=document.getElementById("tag-grid");
+    grid.innerHTML="";
+    app.draftItems.forEach((it,idx)=>{
+      const card=document.createElement("div");
+      card.className="tag-card";
+      const imgHtml = it.imageDataUrl
+        ? `<img class="photo" alt="持ち物の写真">`
+        : `<div class="no-photo">✎</div>`;
+      card.innerHTML=`
+        <button class="remove" aria-label="この項目を削除">×</button>
+        ${imgHtml}
+        <div class="body">
+          <input type="text" class="item-name" placeholder="品名を入力">
+          <div class="conf">${it.conf!=null ? "AI推定(確度"+it.conf+"%)" : "手動追加"}</div>
+        </div>`;
+      if(it.imageDataUrl) card.querySelector(".photo").src=it.imageDataUrl;
+      const inp=card.querySelector(".item-name");
+      inp.value=it.name;
+      inp.oninput=()=>{it.name=inp.value};
+      card.querySelector(".remove").onclick=()=>{app.draftItems.splice(idx,1);app.renderDraft()};
+      grid.appendChild(card);
+    });
+    document.getElementById("detect-count").textContent =
+      "検出された持ち物: "+app.draftItems.length+"点(要確認)";
+    document.getElementById("detect-result").classList.remove("hidden");
+  },
+
+  addManualItem(){
+    app.draftItems.push({name:"",imageDataUrl:null,conf:null});
+    app.renderDraft();
+    const inputs=document.querySelectorAll("#tag-grid .item-name");
+    if(inputs.length) inputs[inputs.length-1].focus();
+  },
+
+  fillLastEmptyName(name){
+    for(let i=app.draftItems.length-1;i>=0;i--){
+      if(!app.draftItems[i].name){ app.draftItems[i].name=name; app.renderDraft(); return; }
+    }
+    app.draftItems.push({name,imageDataUrl:null,conf:null});
+    app.renderDraft();
+  },
+
+  /* ---------- 保存 ---------- */
+  async saveList(){
+    const userName=document.getElementById("inp-user").value.trim();
+    if(!userName){ alert("利用者名(リスト名)を入力してください。"); return; }
+    const items=app.draftItems.filter(i=>i.name.trim());
+    if(items.length===0){ alert("持ち物が1件もありません。品名を入力してください。"); return; }
+    const list={
+      id:"L"+Date.now(),
+      userName, createdAt:Date.now(),
+      items: items.map((i,n)=>({id:"i"+n, name:i.name.trim(), imageDataUrl:i.imageDataUrl, checked:false}))
+    };
+    await DB.put(list);
+    app.openDetail(list.id);
+  },
+
+  /* ---------- 詳細・照合 ---------- */
+  async openDetail(id){
+    app.currentListId=id;
+    app.currentList=await DB.get(id);
+    if(!app.currentList){ app.gotoHome(); return; }
+    document.getElementById("detail-title").textContent=app.currentList.userName;
+    document.getElementById("detail-date").textContent="登録: "+new Date(app.currentList.createdAt).toLocaleString("ja-JP",{dateStyle:"long",timeStyle:"short"});
+    app.renderDetailItems();
+    app.show("scr-detail");
+  },
+
+  renderDetailItems(){
+    const wrap=document.getElementById("detail-items");
+    wrap.innerHTML="";
+    app.currentList.items.forEach(it=>{
+      const row=document.createElement("div");
+      row.className="check-row"+(it.checked?" checked":""); row.tabIndex=0;
+      row.setAttribute("role","checkbox");
+      row.setAttribute("aria-checked", it.checked?"true":"false");
+      const img = it.imageDataUrl ? `<img alt="">` : `<div class="noimg">✎</div>`;
+      row.innerHTML=`${img}<div class="cname"></div><div class="cbox">${it.checked?"✓":""}</div>`;
+      if(it.imageDataUrl) row.querySelector("img").src=it.imageDataUrl;
+      row.querySelector(".cname").textContent=it.name;
+      const toggle=async()=>{
+        it.checked=!it.checked;
+        await DB.put(app.currentList);
+        app.renderDetailItems();
+      };
+      row.onclick=toggle;
+      row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}};
+      wrap.appendChild(row);
+    });
+    const total=app.currentList.items.length;
+    const done=app.currentList.items.filter(i=>i.checked).length;
+    document.getElementById("prog-text").textContent=done+" / "+total;
+    document.getElementById("prog-fill").style.width=(total?Math.round(done/total*100):0)+"%";
+    document.getElementById("all-done").style.display=(total>0&&done===total)?"block":"none";
+  },
+
+  async resetChecks(){
+    if(!confirm("すべてのチェックを外しますか?(照合をやり直すとき用)")) return;
+    app.currentList.items.forEach(i=>i.checked=false);
+    await DB.put(app.currentList);
+    app.renderDetailItems();
+  },
+
+  async deleteList(){
+    if(!confirm("このリストを削除します。元に戻せません。よろしいですか?")) return;
+    await DB.del(app.currentListId);
+    app.gotoHome();
+  },
+
+  /* ---------- CSV書き出し ---------- */
+  exportCsv(){
+    const l=app.currentList;
+    const esc=v=>'"'+String(v).replace(/"/g,'""')+'"';
+    let csv="\uFEFF利用者名,品名,確認状態,登録日\n";
+    l.items.forEach(i=>{
+      csv+=[esc(l.userName),esc(i.name),i.checked?"確認済":"未確認",esc(new Date(l.createdAt).toLocaleDateString("ja-JP"))].join(",")+"\n";
+    });
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="持ち物リスト_"+l.userName.replace(/[\\/:*?"<>|]/g,"_")+".csv";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  }
+};
+
+app.init().catch(e=>alert("初期化に失敗しました: "+e.message));
+</script>
+</body>
+</html>
