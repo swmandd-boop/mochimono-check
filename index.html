@@ -122,7 +122,7 @@ button:focus-visible,input:focus-visible,.check-row:focus-visible,.list-card:foc
 <body>
 
 <header>
-  <div class="brand"><h1>持ち物チェック</h1><span class="sub">SWMD TOOLS v0.2</span></div>
+  <div class="brand"><h1>持ち物チェック</h1><span class="sub">SWMD TOOLS v0.3</span></div>
   <div class="brand-note">写真もリストも端末の中だけに保存されます(外部送信なし)</div>
 </header>
 
@@ -210,6 +210,9 @@ button:focus-visible,input:focus-visible,.check-row:focus-visible,.list-card:foc
   <div class="notice" style="margin-top:16px">iPhoneのSafariは約7日間使わないとブラウザ内のデータを消すことがあります。写真付きの控えは「印刷/PDF保存」で残してください。</div>
 </section>
 
+<!-- 項目個別の写真撮影用(全画面共通) -->
+<input type="file" id="inp-item-photo" accept="image/*" capture="environment" class="hidden">
+
 <!-- ============ 印刷用シート(印刷時のみ表示) ============ -->
 <div id="print-sheet"></div>
 
@@ -294,6 +297,10 @@ const app = {
     await DB.open();
     document.getElementById("inp-photo").addEventListener("change",e=>{
       if(e.target.files && e.target.files[0]) app.detectFromFile(e.target.files[0]);
+      e.target.value="";
+    });
+    document.getElementById("inp-item-photo").addEventListener("change",e=>{
+      if(e.target.files && e.target.files[0]) app.applyItemPhoto(e.target.files[0]);
       e.target.value="";
     });
     app.renderHome();
@@ -403,6 +410,33 @@ const app = {
     return c;
   },
 
+  /* ---------- 項目個別の写真(手動追加・差し替え) ---------- */
+  _photoTarget:null, // {where:"draft"|"detail", idx}
+  pickItemPhoto(where,idx){
+    app._photoTarget={where,idx};
+    document.getElementById("inp-item-photo").click();
+  },
+  async applyItemPhoto(file){
+    const t=app._photoTarget;
+    if(!t)return;
+    app._photoTarget=null;
+    try{
+      const img=await app.fileToImage(file);
+      const small=app.drawScaled(img,400);
+      const dataUrl=small.toDataURL("image/jpeg",0.82);
+      if(t.where==="draft" && app.draftItems[t.idx]){
+        app.draftItems[t.idx].imageDataUrl=dataUrl;
+        app.renderDraft();
+      }else if(t.where==="detail" && app.currentList && app.currentList.items[t.idx]){
+        app.currentList.items[t.idx].imageDataUrl=dataUrl;
+        await DB.put(app.currentList);
+        app.renderDetailItems();
+      }
+    }catch(err){
+      alert("写真の読み込みに失敗しました: "+err.message);
+    }
+  },
+
   cropFromCanvas(canvas,[x,y,w,h]){
     const pad=Math.round(Math.max(w,h)*0.06);
     const sx=Math.max(0,x-pad),sy=Math.max(0,y-pad);
@@ -421,7 +455,7 @@ const app = {
     app.draftItems.forEach((it,idx)=>{
       const card=document.createElement("div");
       card.className="tag-card";
-      const imgHtml=it.imageDataUrl?`<img class="photo" alt="持ち物の写真">`:`<div class="no-photo">✎</div>`;
+      const imgHtml=it.imageDataUrl?`<img class="photo" alt="持ち物の写真(タップで撮り直し)">`:`<div class="no-photo" style="flex-direction:column;font-size:.85rem;gap:4px;cursor:pointer"><span style="font-size:1.6rem">📷</span>タップで写真を撮る</div>`;
       card.innerHTML=`
         <button class="remove" aria-label="この項目を削除">×</button>
         ${imgHtml}
@@ -429,7 +463,10 @@ const app = {
           <input type="text" class="item-name" placeholder="品名を入力">
           <div class="conf">${it.conf!=null?"AI推定(確度"+it.conf+"%)":"手動追加"}</div>
         </div>`;
-      if(it.imageDataUrl)card.querySelector(".photo").src=it.imageDataUrl;
+      const photoEl=card.querySelector(".photo")||card.querySelector(".no-photo");
+      if(it.imageDataUrl)photoEl.src=it.imageDataUrl;
+      photoEl.style.cursor="pointer";
+      photoEl.onclick=()=>app.pickItemPhoto("draft",idx);
       const inp=card.querySelector(".item-name");
       inp.value=it.name;
       inp.oninput=()=>{it.name=inp.value};
@@ -506,7 +543,12 @@ const app = {
       if(app.editMode){
         row.style.cursor="default";
         row.innerHTML=`${img}<input type="text" class="edit-name"><button class="del-item" aria-label="この項目を削除">×</button>`;
-        if(it.imageDataUrl)row.querySelector("img").src=it.imageDataUrl;
+        const photoEl=row.querySelector("img")||row.querySelector(".noimg");
+        if(it.imageDataUrl)photoEl.src=it.imageDataUrl;
+        if(!it.imageDataUrl)photoEl.textContent="📷";
+        photoEl.style.cursor="pointer";
+        photoEl.title="タップで写真を追加・差し替え";
+        photoEl.onclick=()=>app.pickItemPhoto("detail",idx);
         const inp=row.querySelector(".edit-name");
         inp.value=it.name;
         inp.onchange=async()=>{
