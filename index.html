@@ -122,7 +122,7 @@ button:focus-visible,input:focus-visible,.check-row:focus-visible,.list-card:foc
 <body>
 
 <header>
-  <div class="brand"><h1>持ち物チェック</h1><span class="sub">SWMD TOOLS v0.3</span></div>
+  <div class="brand"><h1>持ち物チェック</h1><span class="sub">SWMD TOOLS v0.4</span></div>
   <div class="brand-note">写真もリストも端末の中だけに保存されます(外部送信なし)</div>
 </header>
 
@@ -367,14 +367,14 @@ const app = {
     try{
       if(!app.model){
         msg.textContent="AIモデルを読み込み中…";
-        sub.textContent="初回のみ十数MBの読み込みがあります(Wi-Fi推奨)";
-        app.model=await cocoSsd.load({base:"lite_mobilenet_v2"});
+        sub.textContent="初回のみ数十MBの読み込みがあります(Wi-Fi推奨)";
+        app.model=await cocoSsd.load({base:"mobilenet_v2"}); // 精度重視版
       }
       msg.textContent="写真の中の持ち物を探しています…";
       sub.textContent="";
       const img=await app.fileToImage(file);
       const canvas=app.drawScaled(img,1280);
-      const preds=await app.model.detect(canvas,25,0.45);
+      const preds=await app.model.detect(canvas,25,0.35); // 確度35%以上を採用(拾い漏れより誤検出優先)
       preds.forEach(p=>{
         const crop=app.cropFromCanvas(canvas,p.bbox);
         const en=p.class;
@@ -384,7 +384,7 @@ const app = {
       });
       statusBox.classList.add("hidden");
       if(app.draftItems.length===0){
-        alert("持ち物を検出できませんでした。\n・物を離して並べる\n・明るい場所で撮る\nと検出しやすくなります。手動追加も使えます。");
+        alert("持ち物を検出できませんでした。\n\n【撮り方のコツ】\n・物から50cm〜1mほど離れて撮る(接写は苦手です)\n・無地の背景(白いシーツ等)の上に並べる\n・斜め上45度くらいから撮る\n\nタオル・衣類などはAIが知らない物のため検出されません。手動追加(📷個別撮影)をご利用ください。");
       }
       app.renderDraft();
     }catch(err){
